@@ -81,20 +81,33 @@ export default function ChatApp() {
 
   useEffect(() => {
     if (activeChat && session) {
+      setMessages([]); // Clear previous messages immediately
       axios.get(`/api/messages/${activeChat._id}`).then((res) => {
         setMessages(res.data);
       });
+      setIsTyping(false); // Reset typing status for new chat
+    } else {
+      setMessages([]);
     }
   }, [activeChat, session]);
 
+  // Use Ref to keep track of activeChat for socket listeners without re-triggering them
+  const activeChatRef = useRef(activeChat);
   useEffect(() => {
-    if (!socket) return;
+    activeChatRef.current = activeChat;
+  }, [activeChat]);
 
-    socket.emit("register", session?.user.id);
+  useEffect(() => {
+    if (!socket || !session) return;
+
+    // Remove redundant register emit here as it's handled in SocketContext
 
     socket.on("receive_message", (msg) => {
-      if (activeChat?._id === msg.sender || activeChat?._id === msg.recipient) {
+      // Use ref to check if message belongs to current view
+      const currentActive = activeChatRef.current;
+      if (currentActive?._id === msg.sender || currentActive?._id === msg.recipient) {
         setMessages((prev) => [...prev, msg]);
+        scrollToBottom();
       }
       fetchUsers();
     });
@@ -108,11 +121,20 @@ export default function ChatApp() {
     });
 
     socket.on("typing", ({ senderId }) => {
-      if (activeChat?._id === senderId) setIsTyping(true);
+      if (activeChatRef.current?._id === senderId) setIsTyping(true);
     });
 
     socket.on("stop_typing", ({ senderId }) => {
-      if (activeChat?._id === senderId) setIsTyping(false);
+      if (activeChatRef.current?._id === senderId) setIsTyping(false);
+    });
+
+    socket.on("user_status", ({ userId, status, lastSeen }) => {
+      setRecentChats(prev => prev.map(u =>
+        u._id === userId ? { ...u, online: status === "online", lastSeen: lastSeen || u.lastSeen } : u
+      ));
+      if (activeChatRef.current?._id === userId) {
+        setActiveChat(prev => prev ? ({ ...prev, online: status === "online", lastSeen: lastSeen || prev.lastSeen }) : null);
+      }
     });
 
     return () => {
@@ -121,8 +143,18 @@ export default function ChatApp() {
       socket.off("message_deleted");
       socket.off("typing");
       socket.off("stop_typing");
+      socket.off("user_status");
     };
-  }, [socket, activeChat, session]);
+  }, [socket, session]); // Removed activeChat from dependencies
+
+  // Auto scroll to bottom
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, isTyping]);
 
 
   useEffect(() => {
@@ -138,26 +170,72 @@ export default function ChatApp() {
     document.documentElement.className = newTheme;
   };
 
+  const handleInputChange = (e) => {
+    const value = e.target.value;
+    setInput(value);
+
+    if (socket && activeChat) {
+      socket.emit("typing", { senderId: session.user.id, recipientId: activeChat._id });
+
+      // Clear existing timeout
+      if (window.typingTimeout) clearTimeout(window.typingTimeout);
+
+      // Set new timeout to stop typing
+      window.typingTimeout = setTimeout(() => {
+        socket.emit("stop_typing", { senderId: session.user.id, recipientId: activeChat._id });
+      }, 2000);
+    }
+  };
+
   const sendMessage = async (e) => {
     if (e) e.preventDefault();
     if (!input.trim() || !activeChat) return;
 
+    const content = input;
+    const tempId = Date.now().toString();
+    const tempMsg = {
+      _id: tempId,
+      content,
+      sender: session.user.id,
+      recipient: activeChat._id,
+      createdAt: new Date().toISOString(),
+      isTemp: true
+    };
+
+    // 1. Optimistic Update (Show instantly in UI)
+    setMessages(prev => [...prev, tempMsg]);
+    setInput("");
+    setShowEmojiPicker(false);
+
+    // 2. Clear typing status immediately
+    socket.emit("stop_typing", { senderId: session.user.id, recipientId: activeChat._id });
+    if (window.typingTimeout) clearTimeout(window.typingTimeout);
+
     try {
       if (editingMessage) {
-        const { data } = await axios.patch("/api/messages", { messageId: editingMessage._id, content: input });
-        socket.emit("edit_message", { messageId: editingMessage._id, recipientId: activeChat._id, content: input });
+        const { data } = await axios.patch("/api/messages", { messageId: editingMessage._id, content });
+        socket.emit("edit_message", { messageId: editingMessage._id, recipientId: activeChat._id, content });
         setMessages(prev => prev.map(m => m._id === data._id ? data : m));
         setEditingMessage(null);
       } else {
-        const { data } = await axios.post("/api/messages", { recipient: activeChat._id, content: input });
-        socket.emit("send_message", { ...data, senderId: session.user.id, recipientId: activeChat._id });
-        setMessages((prev) => [...prev, data]);
+        // 3. Fire-and-forget socket emit for real-time speed
+        // Recipient will see it almost instantly
+        socket.emit("send_message", {
+          ...tempMsg,
+          senderId: session.user.id,
+          recipientId: activeChat._id
+        });
+
+        // 4. Save to DB in background
+        const { data } = await axios.post("/api/messages", { recipient: activeChat._id, content });
+
+        // 5. Update the temporary message with the real DB record
+        setMessages(prev => prev.map(m => m._id === tempId ? data : m));
       }
-      setInput("");
-      setShowEmojiPicker(false);
-      socket.emit("stop_typing", { senderId: session.user.id, recipientId: activeChat._id });
     } catch (err) {
       console.error("Send error", err);
+      // Remove temp message if failed
+      setMessages(prev => prev.filter(m => m._id !== tempId));
     }
   };
 
@@ -493,7 +571,7 @@ export default function ChatApp() {
                         />
                         <div>
                           <h4 className="font-semibold text-sm md:text-base text-gray-800 dark:text-white">{user.name}</h4>
-                          <p className="text-sm text-gray-500 dark:text-gray-400">{user.mutualFriends} mutual friends</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[150px]">{user.email}</p>
                         </div>
                       </div>
                       <button
@@ -507,6 +585,16 @@ export default function ChatApp() {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Sidebar Footer */}
+          <div className="p-4 border-t border-gray-100 dark:border-gray-700/50 flex flex-col items-center gap-1 bg-white/50 dark:bg-gray-800/50">
+            <p className="text-sm md:text-base font-medium text-gray-500 dark:text-gray-400">
+              Developed with <span className="text-red-500 animate-pulse">❤️</span> by <span className="text-gray-900 dark:text-white font-bold">Harsh Manmode</span>
+            </p>
+            <p className="text-xs text-gray-400">
+              © {new Date().getFullYear()} Quantum Chat • All rights reserved
+            </p>
           </div>
         </div>
 
@@ -731,7 +819,7 @@ export default function ChatApp() {
                       <input
                         type="text"
                         value={input}
-                        onChange={(e) => setInput(e.target.value)}
+                        onChange={handleInputChange}
                         placeholder="Type a message..."
                         className="flex-1 min-w-0 bg-transparent border-none outline-none px-2 md:px-3 text-gray-800 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                       />
@@ -778,6 +866,16 @@ export default function ChatApp() {
                     <Send className="w-4 h-4 md:w-5 md:h-5 text-white" />
                   </button>
                 </form>
+
+                {/* Mobile Chat Footer */}
+                <div className="md:hidden py-3 flex flex-col items-center gap-1 border-t border-gray-100 dark:border-gray-700/50 bg-white/50 dark:bg-gray-800/50">
+                  <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">
+                    Developed with <span className="text-red-500">❤️</span> by <span className="text-gray-900 dark:text-white font-bold">Harsh Manmode</span>
+                  </p>
+                  <p className="text-[9px] text-gray-400">
+                    © {new Date().getFullYear()} Quantum Chat
+                  </p>
+                </div>
               </div>
             </>
           ) : (
@@ -829,6 +927,7 @@ export default function ChatApp() {
                     </div>
                     <div>
                       <h5 className="font-semibold text-gray-800 dark:text-white">{user.name}</h5>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{user.email}</p>
                     </div>
                   </div>
                   <button

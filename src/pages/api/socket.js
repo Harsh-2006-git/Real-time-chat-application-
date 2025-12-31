@@ -2,7 +2,11 @@ import { Server } from "socket.io";
 import dbConnect from "@/lib/mongodb";
 import User from "@/models/User";
 
-const users = new Map();
+// Use a global variable to persist users map between API reloads in development
+if (!global.socketUsers) {
+    global.socketUsers = new Map();
+}
+const users = global.socketUsers;
 
 const SocketHandler = async (req, res) => {
     if (res.socket.server.io) {

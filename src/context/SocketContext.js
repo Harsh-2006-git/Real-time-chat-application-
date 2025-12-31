@@ -14,11 +14,24 @@ export const SocketProvider = ({ children }) => {
             const newSocket = io({
                 path: "/api/socket",
             });
+
             setSocket(newSocket);
 
-            newSocket.emit("register", session.user.id);
+            newSocket.on("connect", () => {
+                console.log("Socket connected, registering user:", session.user.id);
+                newSocket.emit("register", session.user.id);
+            });
 
-            return () => newSocket.close();
+            // Re-register on reconnect
+            newSocket.on("reconnect", () => {
+                newSocket.emit("register", session.user.id);
+            });
+
+            return () => {
+                newSocket.off("connect");
+                newSocket.off("reconnect");
+                newSocket.close();
+            };
         }
     }, [session]);
 
