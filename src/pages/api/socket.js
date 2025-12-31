@@ -35,49 +35,45 @@ const SocketHandler = async (req, res) => {
 
         socket.on("register", async (userId) => {
             if (!userId) return;
+
+            // Join user-specific room for multi-device/tab support
+            socket.join(userId);
             users.set(userId, socket.id);
+
             try {
                 await User.findByIdAndUpdate(userId, { online: true });
+
+                // Notify everyone that this user is online
                 io.emit("user_status", { userId, status: "online" });
-                console.log(`User ${userId} registered`);
+
+                // Send the list of current online users to the connected user
+                socket.emit("online_users", Array.from(users.keys()));
+
+                console.log(`User ${userId} registered and joined room`);
             } catch (err) {
                 console.error("Socket Register Error:", err);
             }
         });
 
         socket.on("send_message", (message) => {
-            const recipientSocketId = users.get(message.recipientId);
-            if (recipientSocketId) {
-                io.to(recipientSocketId).emit("receive_message", message);
-            }
+            // Emit to recipient's room and sender's room (all tabs)
+            io.to(message.recipientId).to(message.senderId).emit("receive_message", message);
         });
 
-        socket.on("edit_message", ({ messageId, recipientId, content }) => {
-            const recipientSocketId = users.get(recipientId);
-            if (recipientSocketId) {
-                io.to(recipientSocketId).emit("message_edited", { messageId, content });
-            }
+        socket.on("edit_message", ({ messageId, recipientId, content, senderId }) => {
+            io.to(recipientId).to(senderId).emit("message_edited", { messageId, content });
         });
 
-        socket.on("delete_message", ({ messageId, recipientId }) => {
-            const recipientSocketId = users.get(recipientId);
-            if (recipientSocketId) {
-                io.to(recipientSocketId).emit("message_deleted", { messageId });
-            }
+        socket.on("delete_message", ({ messageId, recipientId, senderId }) => {
+            io.to(recipientId).to(senderId).emit("message_deleted", { messageId });
         });
 
         socket.on("typing", ({ senderId, recipientId }) => {
-            const recipientSocketId = users.get(recipientId);
-            if (recipientSocketId) {
-                io.to(recipientSocketId).emit("typing", { senderId });
-            }
+            io.to(recipientId).emit("typing", { senderId });
         });
 
         socket.on("stop_typing", ({ senderId, recipientId }) => {
-            const recipientSocketId = users.get(recipientId);
-            if (recipientSocketId) {
-                io.to(recipientSocketId).emit("stop_typing", { senderId });
-            }
+            io.to(recipientId).emit("stop_typing", { senderId });
         });
 
         socket.on("disconnect", async () => {
@@ -96,6 +92,7 @@ const SocketHandler = async (req, res) => {
                         online: false,
                         lastSeen: now
                     });
+                    // Notify everyone that this user is offline
                     io.emit("user_status", {
                         userId: disconnectedUserId,
                         status: "offline",

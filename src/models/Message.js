@@ -6,7 +6,7 @@ const MessageSchema = new mongoose.Schema({
     content: { type: String, required: true },
     isEdited: { type: Boolean, default: false },
     isDeleted: { type: Boolean, default: false },
-    editedAt: { type: Date },
+    replyTo: { type: mongoose.Schema.Types.ObjectId, ref: 'Message', default: null },
     isRead: { type: Boolean, default: false },
 }, { timestamps: true });
 

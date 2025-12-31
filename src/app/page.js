@@ -27,7 +27,7 @@ const EmojiPicker = dynamic(() => import('emoji-picker-react'), {
 
 export default function ChatApp() {
   const { data: session, status } = useSession();
-  const socket = useSocket();
+  const { socket, onlineUsers: socketOnlineUsers } = useSocket();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [activeChat, setActiveChat] = useState(null);
@@ -41,7 +41,9 @@ export default function ChatApp() {
   const [longPressMsg, setLongPressMsg] = useState(null);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [onlineUsers] = useState([]);
+  const isUserOnline = (userId) => {
+    return socketOnlineUsers.includes(userId);
+  };
   const [isRecording, setIsRecording] = useState(false);
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
   const messagesEndRef = useRef(null);
@@ -106,7 +108,11 @@ export default function ChatApp() {
       // Use ref to check if message belongs to current view
       const currentActive = activeChatRef.current;
       if (currentActive?._id === msg.sender || currentActive?._id === msg.recipient) {
-        setMessages((prev) => [...prev, msg]);
+        setMessages((prev) => {
+          // Check if message already exists (optimistic vs real)
+          if (prev.find(m => m._id === msg._id)) return prev;
+          return [...prev, msg];
+        });
         scrollToBottom();
       }
       fetchUsers();
@@ -143,9 +149,41 @@ export default function ChatApp() {
       socket.off("message_deleted");
       socket.off("typing");
       socket.off("stop_typing");
-      socket.off("user_status");
+      // user_status handled in Context for global consistency
     };
   }, [socket, session]); // Removed activeChat from dependencies
+
+  // Function to group messages by date
+  const groupMessagesByDate = (msgs) => {
+    if (!msgs || msgs.length === 0) return [];
+    const grouped = [];
+    let currentDate = null;
+    let currentGroup = [];
+
+    const sortedMessages = [...msgs].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+    sortedMessages.forEach((msg, index) => {
+      const msgDate = isToday(new Date(msg.createdAt))
+        ? 'Today'
+        : isYesterday(new Date(msg.createdAt))
+          ? 'Yesterday'
+          : format(new Date(msg.createdAt), 'MMMM d, yyyy');
+
+      if (msgDate !== currentDate) {
+        if (currentGroup.length > 0) grouped.push({ date: currentDate, messages: currentGroup });
+        currentDate = msgDate;
+        currentGroup = [msg];
+      } else {
+        currentGroup.push(msg);
+      }
+
+      if (index === sortedMessages.length - 1) {
+        grouped.push({ date: currentDate, messages: currentGroup });
+      }
+    });
+
+    return grouped;
+  };
 
   // Auto scroll to bottom
   const scrollToBottom = () => {
@@ -192,7 +230,7 @@ export default function ChatApp() {
     if (!input.trim() || !activeChat) return;
 
     const content = input;
-    const tempId = Date.now().toString();
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const tempMsg = {
       _id: tempId,
       content,
@@ -404,13 +442,13 @@ export default function ChatApp() {
                     {/* Header */}
                     <div className="bg-gradient-to-r from-blue-500 to-purple-600 p-6 text-white">
                       <div className="flex items-center gap-4">
-                        <div className="relative">
-                          <img
-                            src={session.user.image}
-                            alt={session.user.name}
-                            className="w-16 h-16 rounded-full border-4 border-white/30"
-                          />
-                          <div className="absolute bottom-0 right-0 w-4 h-4 bg-green-400 rounded-full border-2 border-white"></div>
+                        <div className="relative flex-shrink-0">
+                          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500/10 to-indigo-500/10 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold group-hover:scale-110 transition-transform">
+                            {session.user.name[0]}
+                          </div>
+                          {isUserOnline(session.user.id) && (
+                            <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 border-2 border-white dark:border-gray-800 rounded-full"></div>
+                          )}
                         </div>
                         <div className="flex-1 min-w-0">
                           <h3 className="font-bold text-lg truncate">{session.user.name}</h3>
@@ -512,13 +550,12 @@ export default function ChatApp() {
                       onClick={() => setActiveChat(chat)}
                     >
                       <div className="relative">
-                        <img
-                          src={chat.image}
-                          alt={chat.name}
-                          className="w-12 h-12 rounded-full border-2 border-gray-200 dark:border-gray-600"
-                        />
-                        <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white dark:border-gray-800 ${chat.online ? 'bg-green-500' : 'bg-gray-400'
-                          }`}></div>
+                        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-lg shadow-lg">
+                          {chat.name[0]}
+                        </div>
+                        {isUserOnline(chat._id) && (
+                          <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 border-2 border-white dark:border-gray-800 rounded-full shadow-[0_0_8px_rgba(34,197,94,0.5)]"></div>
+                        )}
                       </div>
 
                       <div className="flex-1 min-w-0">
@@ -564,11 +601,16 @@ export default function ChatApp() {
                   {peopleYouMayKnow.map((user) => (
                     <div key={user._id} className="flex items-center justify-between p-3 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
                       <div className="flex items-center gap-3">
-                        <img
-                          src={user.image}
-                          alt={user.name}
-                          className="w-12 h-12 rounded-full"
-                        />
+                        <div className="relative">
+                          <img
+                            src={user.image}
+                            alt={user.name}
+                            className="w-12 h-12 rounded-full"
+                          />
+                          {isUserOnline(user._id) && (
+                            <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 border-2 border-white dark:border-gray-800 rounded-full"></div>
+                          )}
+                        </div>
                         <div>
                           <h4 className="font-semibold text-sm md:text-base text-gray-800 dark:text-white">{user.name}</h4>
                           <p className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[150px]">{user.email}</p>
@@ -662,82 +704,77 @@ export default function ChatApp() {
               {/* Messages */}
               <div className="flex-1 overflow-y-auto p-4">
                 <div className="space-y-4">
-                  {messages.map((msg, index) => {
-                    const isMine = msg.sender === session.user.id;
-                    const showDate = index === 0 ||
-                      new Date(msg.createdAt).getDate() !== new Date(messages[index - 1].createdAt).getDate();
+                  {groupMessagesByDate(messages).map((group, gIdx) => (
+                    <div key={`group-${gIdx}`}>
+                      <div className="flex justify-center my-6">
+                        <span className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-sm rounded-full">
+                          {group.date}
+                        </span>
+                      </div>
 
-                    return (
-                      <div key={msg._id || index}>
-                        {showDate && (
-                          <div className="flex justify-center my-6">
-                            <span className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-sm rounded-full">
-                              {isToday(new Date(msg.createdAt))
-                                ? 'Today'
-                                : isYesterday(new Date(msg.createdAt))
-                                  ? 'Yesterday'
-                                  : format(new Date(msg.createdAt), 'MMMM d, yyyy')}
-                            </span>
-                          </div>
-                        )}
+                      {group.messages.map((msg, index) => {
+                        const isMine = msg.sender === session.user.id;
+                        return (
+                          <div key={msg._id || `msg-${gIdx}-${index}`} className={`mb-4 flex ${isMine ? 'justify-end' : 'justify-start'}`}>
+                            <div className={`relative group max-w-[70%] ${isMine ? 'ml-auto' : 'mr-auto'}`}>
+                              <div className={`rounded-2xl px-4 py-3 ${isMine
+                                ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-br-none'
+                                : 'bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-bl-none'
+                                }`}>
+                                {msg.isDeleted ? (
+                                  <p className="italic text-gray-500 dark:text-gray-400">This message was deleted</p>
+                                ) : (
+                                  <>
+                                    <p className="text-sm">{msg.content}</p>
+                                    <div className={`flex items-center gap-2 mt-1 text-xs ${isMine ? 'text-blue-100' : 'text-gray-500 dark:text-gray-400'}`}>
+                                      <span>{format(new Date(msg.createdAt), 'HH:mm')}</span>
+                                      {msg.isEdited && <span className="italic">edited</span>}
+                                      {isMine && <CheckCheck className="w-3 h-3" />}
+                                    </div>
+                                  </>
+                                )}
+                              </div>
 
-                        <div className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
-                          <div className={`relative group max-w-[70%] ${isMine ? 'ml-auto' : 'mr-auto'}`}>
-                            <div className={`rounded-2xl px-4 py-3 ${isMine
-                              ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-br-none'
-                              : 'bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-bl-none'
-                              }`}>
-                              {msg.isDeleted ? (
-                                <p className="italic text-gray-500 dark:text-gray-400">This message was deleted</p>
-                              ) : (
-                                <>
-                                  <p className="text-sm">{msg.content}</p>
-                                  <div className={`flex items-center gap-2 mt-1 text-xs ${isMine ? 'text-blue-100' : 'text-gray-500 dark:text-gray-400'
-                                    }`}>
-                                    <span>{format(new Date(msg.createdAt), 'HH:mm')}</span>
-                                    {msg.isEdited && <span className="italic">edited</span>}
-                                    {isMine && <CheckCheck className="w-3 h-3" />}
-                                  </div>
-                                </>
+                              {!msg.isDeleted && isMine && (
+                                <div className="absolute -left-12 top-1/2 transform -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                                  <button
+                                    onClick={() => {
+                                      setEditingMessage(msg);
+                                      setInput(msg.content);
+                                    }}
+                                    className="p-2 bg-white dark:bg-gray-700 rounded-lg shadow-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors text-gray-700 dark:text-gray-200"
+                                  >
+                                    <Edit2 className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    onClick={() => deleteMessage(msg._id)}
+                                    className="p-2 bg-red-500 text-white rounded-lg shadow-lg hover:bg-red-600 transition-colors"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
                               )}
                             </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))
+                  }
 
-                            {!msg.isDeleted && isMine && (
-                              <div className="absolute -left-12 top-1/2 transform -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-                                <button
-                                  onClick={() => {
-                                    setEditingMessage(msg);
-                                    setInput(msg.content);
-                                  }}
-                                  className="p-2 bg-white dark:bg-gray-700 rounded-lg shadow-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors text-gray-700 dark:text-gray-200"
-                                >
-                                  <Edit2 className="w-3 h-3" />
-                                </button>
-                                <button
-                                  onClick={() => deleteMessage(msg._id)}
-                                  className="p-2 bg-red-500 text-white rounded-lg shadow-lg hover:bg-red-600 transition-colors"
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </button>
-                              </div>
-                            )}
+                  {
+                    isTyping && (
+                      <div className="flex justify-start">
+                        <div className="bg-white dark:bg-gray-700 rounded-2xl rounded-bl-none px-4 py-3">
+                          <div className="flex gap-1">
+                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-100"></div>
+                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-200"></div>
                           </div>
                         </div>
                       </div>
-                    );
-                  })}
-
-                  {isTyping && (
-                    <div className="flex justify-start">
-                      <div className="bg-white dark:bg-gray-700 rounded-2xl rounded-bl-none px-4 py-3">
-                        <div className="flex gap-1">
-                          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-100"></div>
-                          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-200"></div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                    )
+                  }
 
                   <div ref={messagesEndRef} />
                 </div>
@@ -924,6 +961,9 @@ export default function ChatApp() {
                         alt={user.name}
                         className="w-10 h-10 rounded-full"
                       />
+                      {isUserOnline(user._id) && (
+                        <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 border-2 border-white dark:border-gray-800 rounded-full shadow-[0_0_5px_rgba(34,197,94,0.5)]"></div>
+                      )}
                     </div>
                     <div>
                       <h5 className="font-semibold text-gray-800 dark:text-white">{user.name}</h5>
