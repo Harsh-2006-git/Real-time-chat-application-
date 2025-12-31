@@ -1,36 +1,124 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Real-Time Chat Application
 
-## Getting Started
+A modern, real-time chat application built with Next.js, Socket.io, and MongoDB. Optimized for **single-port deployment on Vercel**.
 
-First, run the development server:
+## ✨ Features
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- 🔐 **Authentication** with NextAuth.js
+- 💬 **Real-time messaging** with Socket.io
+- 👥 **User presence** (online/offline status)
+- ✏️ **Message editing and deletion**
+- ⌨️ **Typing indicators**
+- 📱 **Responsive design**
+- 🚀 **Single-port architecture** for easy deployment
+
+## 🏗️ Architecture
+
+This application uses a **unified single-port architecture**:
+- Next.js app and Socket.io run on the **same port**
+- Socket.io is available at `/api/socket` endpoint
+- **No separate backend server needed**
+- Fully compatible with Vercel's serverless infrastructure
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Node.js 18+ 
+- MongoDB database (local or MongoDB Atlas)
+
+### Installation
+
+1. **Clone the repository**
+   ```bash
+   git clone <your-repo-url>
+   cd chat-app
+   ```
+
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
+
+3. **Set up environment variables**
+   Create a `.env` file in the root directory:
+   ```env
+   MONGODB_URI=your_mongodb_connection_string
+   NEXTAUTH_URL=http://localhost:3000
+   NEXTAUTH_SECRET=your_secret_key
+   ```
+
+4. **Run the development server**
+   ```bash
+   npm run dev
+   ```
+
+5. **Open your browser**
+   Navigate to [http://localhost:3000](http://localhost:3000)
+
+## 📦 Deployment to Vercel
+
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed deployment instructions.
+
+### Quick Deploy
+
+1. Push your code to GitHub/GitLab/Bitbucket
+2. Import to Vercel at [vercel.com/new](https://vercel.com/new)
+3. Add environment variables:
+   - `MONGODB_URI`
+   - `NEXTAUTH_URL` (your Vercel domain)
+   - `NEXTAUTH_SECRET`
+4. Deploy!
+
+**That's it!** Both your app and Socket.io will work on the same domain.
+
+## 🛠️ Tech Stack
+
+- **Frontend**: Next.js 16, React 19
+- **Real-time**: Socket.io
+- **Database**: MongoDB with Mongoose
+- **Authentication**: NextAuth.js
+- **Styling**: CSS Modules
+- **State Management**: Zustand
+
+## 📁 Project Structure
+
+```
+chat-app/
+├── pages/
+│   └── api/
+│       └── socket.js          # Socket.io API route (Pages Router)
+├── src/
+│   ├── app/                   # Next.js App Router
+│   │   ├── api/              # REST API routes
+│   │   └── ...
+│   ├── components/           # React components
+│   ├── context/
+│   │   └── SocketContext.js  # Socket.io client context
+│   ├── models/               # Mongoose models
+│   └── lib/                  # Utilities
+├── vercel.json               # Vercel configuration
+└── package.json
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 🔧 Scripts
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+- `npm run dev` - Start development server
+- `npm run build` - Build for production
+- `npm start` - Start production server
+- `npm run lint` - Run ESLint
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 🌐 Environment Variables
 
-## Learn More
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `MONGODB_URI` | MongoDB connection string | Yes |
+| `NEXTAUTH_URL` | Application URL | Yes |
+| `NEXTAUTH_SECRET` | Secret for NextAuth.js | Yes |
 
-To learn more about Next.js, take a look at the following resources:
+## 📝 License
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+MIT
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 🤝 Contributing
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Contributions are welcome! Please feel free to submit a Pull Request.

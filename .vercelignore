@@ -1,0 +1,18 @@
+# Deprecated files (not used in Vercel deployment)
+server.js
+src/server/
+
+# Development files
+*.log
+.env.local
+.env.development
+
+# Testing
+coverage/
+.nyc_output/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
