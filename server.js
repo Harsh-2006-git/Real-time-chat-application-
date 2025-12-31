@@ -9,7 +9,7 @@
  */
 
 const { createServer } = require("http");
-const { parse } = require("url");
+// No longer need require("url") as we use global URL class
 const next = require("next");
 const { Server: SocketServer } = require("socket.io");
 const mongoose = require("mongoose");
@@ -38,8 +38,15 @@ mongoose.connect(MONGODB_URI)
 
 app.prepare().then(() => {
     const httpServer = createServer((req, res) => {
-        const parsedUrl = parse(req.url, true);
-        handle(req, res, parsedUrl);
+        const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
+        const { pathname, searchParams } = parsedUrl;
+
+        if (pathname.startsWith("/api/socket")) {
+            // Handle socket path if needed, or pass to Next.js
+            handle(req, res, parsedUrl);
+        } else {
+            handle(req, res, parsedUrl);
+        }
     });
 
     const io = new SocketServer(httpServer, {
