@@ -1,5 +1,14 @@
 # Real-Time Chat Application
 
+---
+<img width="1897" height="901" alt="image" src="https://github.com/user-attachments/assets/8963e090-5ec4-40ab-9ad4-52d7f965e9aa" />
+
+---
+Live Demo Link: https://quantum-chat-harsh.vercel.app/
+
+---
+
+
 A modern, real-time chat application built with Next.js, Socket.io, and MongoDB. Optimized for **single-port deployment on Vercel**.
 
 ## ✨ Features
